@@ -9,7 +9,7 @@ extern Code code;
 extern FuncTable funcTable;
 extern int yyparse (void);
 
-string_code RelopHit (string const& str) {
+str_code RelopHit (string const& str) {
     if (str == "==") return Eq;
     if (str == "<>") return Neq;
     if (str == "<") return Lt;
@@ -19,7 +19,7 @@ string_code RelopHit (string const& str) {
     return Default;
 }
 
-string_code ArithHit (string const& str) {
+str_code ArithHit (string const& str) {
     if (str == "+") return Add;
     if (str == "-") return Sub;
     if (str == "*") return Mul;
