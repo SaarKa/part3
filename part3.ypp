@@ -113,7 +113,7 @@ func_api : type ID '(' func_args ')'    {
                 TokenNode *id = dynamic_cast<TokenNode*>($2);
                 ArgLstNode *func_args = dynamic_cast<ArgLstNode*>($4);
 
-                funcProps funcProps = {
+                functionProps funcProps = {
                     type->typeVal,
                     id->value,
                     func_args->argList

@@ -41,11 +41,11 @@ typedef struct _ArgDeclr {
     idTypes type;
 } ArgDeclr;
 
-typedef struct _funcProps {
+typedef struct _functionProps {
     idTypes type;
     string id;
     list<ArgDeclr> args;
-} funcProps;
+} functionProps;
 
 //general error
 void genErr(const char* error);
@@ -161,7 +161,7 @@ public:
 
 class FuncApiNode : public SymNode{
 public:
-    funcProps funcProps;
+    functionProps funcProps;
 };
 
 class CallArgsNode : public SymNode{
@@ -288,17 +288,17 @@ class funcEntry{
 protected:
     int _defLine;
 public:
-    funcProps props;
+    functionProps props;
     CodeList callList;
     //constructor. gets the props of the func
-    funcEntry(funcProps& funcProps);
+    funcEntry(functionProps& funcProps);
     //if func defined, return place, else -1
     string getPlace(int curLine);
     //Store the beginning of the defenition line.
     void define(int _defLine);
     bool isDefined();
     //return true if props match func, else false
-    bool matchFunc(funcProps& funcProps);
+    bool matchFunc(functionProps& funcProps);
 };
 
 class FuncTable{
@@ -309,7 +309,7 @@ public:
     //return ptr to entry if found, else NULL.
     funcEntry* find(string id);
     //add new function entry
-    funcEntry* insert(funcProps& funcProps);
+    funcEntry* insert(functionProps& funcProps);
     //return ptr to the entry of the last func that was inserted
     funcEntry* getCurrent();
     //change _current to be the given funcEntry

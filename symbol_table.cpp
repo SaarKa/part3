@@ -197,7 +197,7 @@ bool VarsTable::isInScope(string id){
 
 
 //funcEntry implementation
-funcEntry::funcEntry(funcProps& funcProps) : _defLine(-1) , props(funcProps) {}
+funcEntry::funcEntry(functionProps& funcProps) : _defLine(-1) , props(funcProps) {}
 
 string funcEntry::getPlace(int curLine){
     if(!isDefined()){
@@ -215,7 +215,7 @@ bool funcEntry::isDefined(){
     return (_defLine != -1);
 }
 
-bool funcEntry::matchFunc(funcProps& funcProps){
+bool funcEntry::matchFunc(functionProps& funcProps){
     if(funcProps.type != props.type || funcProps.args.size() != props.args.size() || funcProps.id != props.id)
         return false;
     for(auto myIt = props.args.begin(), otherIt = funcProps.args.begin();myIt != props.args.end(); myIt++,otherIt++){
@@ -235,7 +235,7 @@ funcEntry* FuncTable::find(string id){
     return nullptr;
 }
 
-funcEntry* FuncTable::insert(funcProps& funcProps){
+funcEntry* FuncTable::insert(functionProps& funcProps){
     funcEntry newFunc(funcProps);
     _FuncTable.insert( pair<string,funcEntry>(funcProps.id, newFunc));
     auto it = _FuncTable.find(funcProps.id);
