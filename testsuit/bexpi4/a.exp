@@ -1,0 +1,8 @@
+Input integer?:Input integer?:
+Test 1: 8000 == 4345 is: FALSE
+Test 2: 8000 > 4345 is: TRUE
+Test 3: 8000 >= 4345 is: TRUE
+Test 4: 8000 < 4345 is: FALSE
+Test 5: 8000 <= 4345 is: FALSE
+Test 6: 8000 != 4345 is: TRUE
+Reached Halt.
