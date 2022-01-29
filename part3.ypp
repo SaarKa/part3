@@ -1,0 +1,875 @@
+%{
+	#include "part3_helpers.hpp"
+	//#include "code_class_helpers.hpp"
+	#include "symbol_table.hpp"
+	#include <iostream.h>
+	#include <stdio.h>
+    #include <list>
+    #include <algorithm>
+    using namespace std;
+    
+	void yyerror(const char* c);
+	void new_err(const char* c);
+	void sem_error(const char* c)
+	extern int yylineno;
+	extern const char* yytext;
+	extern int yylex();
+
+	ParsNode *parseTree;
+	Code code;
+	VarsTable varTable;
+	FuncTable funcTable;
+
+%}
+	
+	%token ID
+	%token INT
+	%token FLOAT
+	%token VOID
+	%token INTEGERNUM
+	%token REALNUM
+	%token WRITE
+	%token STR
+	%token READ
+	%token WHILE
+	%token DO
+	%token IF
+	%token RETURN
+	%token FULL_WHILE
+	%token BREAK
+	%precedence THEN
+	%precedence ELSE
+	
+	%right ASSIGN
+	%left OR
+	%left AND
+	%left RELOP
+	%left ADDOP
+	%left MULOP
+	%right NOT
+	%left '('
+	%left ')'
+	%left '{'
+	%left '}'
+	%left '.'
+	%left ';'
+	%left ','
+	%left ':'
+
+%%
+	program		: fdefs
+					{
+						//$$ = new SymNode("PROGRAM", $1);
+						$$ = new SymNode();
+						parseTree = $$;
+						code.emit("HALT");
+					};
+	fdefs		: fdefs func_api
+					{
+		                FuncApiNode *func_api = dynamic_cast<FuncApiNode*>($2);
+		                funcEntry* funcEntry = funcTable.findEntry(func_api->funcProps.id);
+		                if(funcEntry != nullptr){
+		                    funcEntry = funcTable.addFunc(func_api->funcProps);
+		                } else {
+		                    if(!funcEntry.matchFunc(func_api->funcProps))
+		                        sem_error("more than one declaration of the same function with different API");
+		                    //funcEntry->props.args = func_api->funcProps.args;
+		                }
+		                funcEntry->props.args = func_api->funcProps.args;
+		                if(funcEntry->isDefined())
+		                    sem_error("duplicate function defs");
+		                funcTable.setCurrFunc(funcEntry);
+		                varTable.setAPI(funcEntry->props.args);
+		                funcEntry->define(code.nextQuad());
+					} blk {
+		                //$$=new SymNode("FDEFS",concatList(concatList($1,$2),$3));
+		                $$=new SymNode();
+		                StmtNode *blk = dynamic_cast<StmtNode*>($3);
+		                if(!blk->breaklist.empty())
+		                    sem_error("break statement not in loop");
+		                code.emit("RETRN");////////////////////////////////////////////////////////////////////RETRN?
+					}
+					|fdefs func_api ';'
+					{
+		                //$$=new SymNode("FDEFS",concatList(concatList($1,$2),$3));
+		                $$=new SymNode();
+		                FuncApiNode *func_api = dynamic_cast<FuncApiNode*>($2);
+		                funcEntry* funcEntry = funcTable.findEntry(func_api->funcProps.id);
+		                if(funcEntry != nullptr){
+		                    funcTable.addFunc(func_api->funcProps);
+		                } else if(!funcEntry.matchFunc(func_api->funcProps)){
+		                        sem_error("more than one declaration of the same function with different API");
+		                    	}
+					}
+					|/*EPSILON*/
+					{
+						$$ = new SymNode();
+					};
+func_api	: type ID '(' func_args ')'
+					{
+		                //$$=new FuncApiNode("FUNC_API",concatList(concatList(concatList(concatList($1,$2),$3),$4),$5));
+		                $$=new FuncApiNode();
+		                FuncApiNode* func_api = dynamic_cast<FuncApiNode*>($$);
+		                TypeNode *type = dynamic_cast<TypeNode*>($1);
+		                TokenNode *id = dynamic_cast<TokenNode*>($2);
+		                ArgLstNode *func_args = dynamic_cast<ArgLstNode*>($4);
+		                funcProp funcProps = {
+		                    type->typeValue,
+		                    id->value,
+		                    args->func_args
+                		};
+               			func_api->funcProps = funcProps;
+					};
+	func_args 	: func_arglist
+					{
+		                //$$=new ArgLstNode("FUNC_ARGS",$1);
+		                $$=new ArgLstNode();
+		                ArgLstNode* funct_args = dynamic_cast<ArgLstNode*>($$);
+		                ArgLstNode* funct_arglist = dynamic_cast<ArgLstNode*>($1);
+		                funct_args->argsList = funct_arglist->argsList;
+					}
+					|/*EPSILON*/
+					{
+						$$ = new ArgLstNode();
+					};
+	func_arglist: func_arglist ',' dcl
+					{
+		                //$$=new ArgLstNode("FUNC_ARGLIST",concatList(concatList($1,$2),$3));
+						$$=new ArgLstNode();
+		                ArgLstNode *funct_args1 = dynamic_cast<ArgLstNode*>($$);
+		                ArgLstNode *funct_args2 = dynamic_cast<ArgLstNode*>($1);
+		                DeclarNode *dcl = dynamic_cast<DeclarNode*>($3);
+
+		                funct_args1->argsList = funct_args2->argsList;
+		                for(string id : dcl->idList) {
+		                    for(DeclaredFuncArgs argIt : funct_args1->argsList){
+		                        if(argIt.id == id)
+		                            sem_error("Same variable name is declared twice");
+		                    }
+		                    DeclaredFuncArgs arg={id, dcl->idType};
+		                    funct_args1->argsList.push_back(arg);
+		                }
+					}
+					|dcl
+					{
+		                //$$=new ArgLstNode("FUNC_ARGLIST",$1);
+		                $$=new ArgLstNode();
+		                ArgLstNode *funct_arglist = dynamic_cast<ArgLstNode*>($$);
+		                DeclarNode *dcl = dynamic_cast<DeclarNode*>($1);
+		                for(string id : dcl->idList){
+		                    DeclaredFuncArgs arg={id, dcl->idType};
+		                    funct_arglist->argsList.push_back(arg);
+		                }
+					};
+	blk			: '{' {
+					  	varTable.push();
+                		if(varTable.argsList.size() > 0){
+	                    	for(DeclaredFuncArgs arg : argsList){
+	                        	varTable.head().newReg(arg.id, arg.type);
+	                    	}
+		                    varTable.argsList.clear();
+		                }
+					} stlist '}'
+					{
+		                //$$=new StmtNode("BLK",concatList(concatList($1,$2),$3));
+		                $$=new StmtNode();
+		                StmtNode *blk = dynamic_cast<StmtNode*>($$);
+		                StmtNode *stlist = dynamic_cast<StmtNode*>($1);
+		                blk->nextlist = stlist->nextlist;
+		                blk->breaklist = stlist->breaklist;
+		                varTable.pop();
+					};
+	dcl			: ID ':' type
+					{
+		                //$$=new DeclarNode("DCL",concatList(concatList($1,$2),$3));
+		                $$=new DeclarNode();
+		                DeclarNode *dcl = dynamic_cast<DeclarNode*>($$);
+		                TokenNode *id = dynamic_cast<TokenNode*>($1);
+		                TypeNode *type = dynamic_cast<TypeNode*>($3);
+		                if(type->typeVal == VOID_t)
+		                        sem_error("void is not a legit var type");
+		                dcl->idType = type->typeVal;
+		                dcl->idList.push_front(id->value);
+					}
+					| ID ',' dcl
+					{
+		                //&&=new TypeNode("DCL",concatList(concatList($1,$2),$3));
+		                &&=new DeclarNode();
+		                DeclarNode *dcl = dynamic_cast<DeclarNode*>($$);
+		                TokenNode *id = dynamic_cast<TokenNode*>($1);
+		                DeclarNode *dcl1 = dynamic_cast<DeclarNode*>($3);
+		                if(std::find(std::begin(dcl1->idList), std::end(dcl1->idList), id->value) != std::end(dcl1->idList)){
+		                    sem_error("can't have 2 declarations with the same key");
+		                }
+		                dcl->idType = dcl1->typeVal;
+		                dcl->idList = dcl1->idList;
+		                dcl->idList.push_front(id->value);	
+					};
+	type		: INT
+					{
+		                $$=new TypeNode();
+		                ((TypeNode*)$$)->typeVal = INT_t;
+					}
+					|FLOAT
+					{
+		                $$=new TypeNode();
+		                ((TypeNode*)$$)->typeVal = FLOAT_t;
+					}
+					|VOID
+					{
+		                $$=new TypeNode();
+		                ((TypeNode*)$$)->typeVal = VOID_t;
+					};
+	stlist		: stlist M stmt
+					{
+		                $$=new StmtNode();
+		                StmtNode *stlist=dynamic_cast<StmtNode*>($$);
+		                StmtNode *stlist1=dynamic_cast<StmtNode*>($1);
+		                MMarkNode *M=dynamic_cast<MMarkNode*>($2);
+		                StmtNode *stmt=dynamic_cast<StmtNode*>($3);
+		                code.backpatch(stlist1->nextlist, M->quad);
+		                stlist->nextlist.merge(stmt->nextlist);
+		                stlist->breaklist.merge(stmt->breaklist);
+		                stlist->breaklist.merge(stlist1->breaklist);
+					}
+					|/*EPSILON*/
+					{
+						$$=new StmtNode();
+					};
+	stmt		: dcl ';'
+					{
+		                $$=new StmtNode();
+		                DeclarNode *dcl = dynamic_cast<DeclarNode*>($1);
+
+		                for(string id : dcl->idList){
+		                    if(varTable.isInScope(id))
+		                        sem_error("variable already declared in block");                     
+		                    varTable.front().newReg(id, dcl->idType);
+					}
+					|assn
+					{
+						$$=new StmtNode();
+					}
+					|exp ';'
+					{
+						$$=new StmtNode();
+					}
+					|cntrl
+					{
+		                $$=new StmtNode();
+		                StmtNode *stmt = dynamic_cast<StmtNode*>($$);
+		                StmtNode *cntrl = dynamic_cast<StmtNode*>($1); 
+		                stmt->nextlist = cntrl->nextlist;
+		                stmt->breaklist = cntrl->breaklist;
+					}
+					|read
+					{
+						$$=new StmtNode();
+					}
+					|write
+					{
+						$$=new StmtNode();
+					}
+					|return
+					{
+						$$=new StmtNode();
+					}
+					|blk
+					{
+		                $$=new StmtNode();
+		                StmtNode *stmt = dynamic_cast<StmtNode*>($$);
+		                StmtNode *blk = dynamic_cast<StmtNode*>($1);
+		                stmt->nextlist = blk->nextlist;
+		                stmt->breaklist = blk->breaklist;
+					}
+					|BREAK ';'
+					{
+		                $$=new StmtNode();
+		                StmtNode *stmt = dynamic_cast<StmtNode*>($$);
+		                stmt->breaklist.push_back(code.nextQuad());
+		                code.emit("UJUMP -1");
+					};
+	return 		: RETURN exp ';'
+					{
+			            $$=new SymNode();
+			            ExpNode *exp = dynamic_cast<ExpNode*>($2);
+			            if(funcTable.getCurrFunc()->props.type != exp->exp)
+			                sem_error("function declaration is not same val as return val");
+			            if(exp->exp == VOID_t)
+			                sem_error("void is not a legit return value type");
+			            if(exp->exp == INT_t)
+			                code.emit("COPYI", $RI, exp->place);
+			            else if(exp->exp == FLOAT_t)
+			                code.emit("COPYF", $RF, exp->place);
+			            code.emit("RETRN");
+					}
+					| RETURN ';'
+					{
+			            $$=new SymNode();
+			            if(funcTable.getCurrFunc()->props.type != VOID_t)
+			                sem_error("no return arg found");
+			            code.emit("RETRN");
+					};
+	write		: WRITE '(' exp ')' ';'
+					{
+		                $$=new SymNode();
+		                ExpNode *exp = dynamic_cast<ExpNode*>($3);
+		                if(exp->exp == VOID_t)
+		                        sem_error("void expressions cannot be assigned or read");
+		                if(exp->exp == INT_t)
+		                    code.emit("PRNTI", exp->place);
+		                else if(exp->exp == FLOAT_t)
+		                    code.emit("PRNTF", exp->place);
+					}
+					| WRITE '(' STR ')' ';'
+					{
+		                $$=new SymNode();
+		                TokenNode *strToken = dynamic_cast<TokenNode*>($3);
+
+		                string str = strToken->value;
+		                for(int i=0; i<str.length();i++){
+		                    if(str[i] == '\\'){
+		                        i++;
+		                        switch(str[i]){
+		                            case 'n':
+		                                code.emit("PRNTC 10");//////////////////////////////////////////////////////////what is PRNTC10?
+		                                break;
+		                            case 't':
+		                                code.emit("PRNTC 9");//////////////////////////////////////////////////////////what is PRNTC9?
+		                                break;
+		                            case '"':
+		                                code.emit("PRNTC 34");//////////////////////////////////////////////////////////what is PRNTC34?
+		                                break;
+		                            default:
+		                                genErr("Unknown char after \\");
+		                        }
+		                    } else {
+		                        code.emit("PRNTC", to_string(int(str[i])));
+		                    }
+		                }
+					};
+	read		: READ '(' lval ')' ';'
+					{
+		                $$=new SymNode();
+		                SymNode *read = dynamic_cast<SymNode*>($$);
+		                ExpNode *lval = dynamic_cast<ExpNode*>($3);
+		                string type = (lval->exp == INT_t) ? "I" : "F";
+		                string tmp = varTable.head().tempReg(lval->exp);
+		                code.emit(string("READ")+type, tmp);
+            		    code.emit(string("STOR")+type, tmp, lval->place, "0");
+						
+					};
+	assn		: lval ASSIGN exp ';'
+					{
+		                $$=new StmtNode();
+		                StmtNode *assn = dynamic_cast<StmtNode*>($$);
+		                ExpNode *lval = dynamic_cast<ExpNode*>($1);
+		                ExpNode *exp = dynamic_cast<ExpNode*>($3);
+
+		                if(lval->exp != exp->exp)
+		                        sem_error("wrong types assignment");
+		                string type = (lval->exp == INT_t) ? "I" : "F";
+		                code.emit(string("COPY")+type, lval->place, exp->place);
+					};
+	lval		: ID
+					{
+		                $$ = new ExpNode();
+		                ExpNode *lval = dynamic_cast<ExpNode*>($$);
+		                TokenNode *id = dynamic_cast<TokenNode*>($1);
+		                VarEntry idEntry;
+		                bool isFound = VarsTable.searchAllTables(idEntry, id->value);
+		                if(!isFound)
+		                        sem_error("undeclared variable");
+		                string IAddress = varTable.front().tempReg(eINT);
+		                code.emit("ADD2I",IAddress, DP, to_string(idEntry.place));
+
+		                lval->exp = idEntry.type;
+		                lval->place = IAddress;
+
+		                if(idEntry.type == FLOAT_t){
+		                    string FAddress = varTable.front().tempReg(eFLOAT);
+		                    code.emit("CITOF",FAddress,IAddress);
+		                    lval->place = FAddress;
+		                }
+					};
+	fullwhile	: FULL_WHILE N M bexp DO M stmt
+					{
+		                $$ = new BranchExpNode();
+		                BranchExpNode *fullwhile = dynamic_cast<BranchExpNode*>($$);
+		                NMarkNode *N = dynamic_cast<NMarkNode*>($2);
+		                MMarkNode *M1 = dynamic_cast<MMarkNode*>($3);
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($4);
+		                MMarkNode *M2 = dynamic_cast<MMarkNode*>($6);
+		                NodeStatement *stmt = dynamic_cast<NodeStatement*>($7);
+
+		                code.emit("UJUMP", M1->quad);
+		                code.backpatch(N->nextlist,code.nextQuad());
+		                string res = varTable.head().tempReg(INT_t);
+		                code.emit("COPYI", res , "0"); 
+		                code.emit("UJUMP", M1->quad);
+		                code.backpatch(bexp->truelist,code.nextQuad());
+		                code.emit("COPYI", res , "1"); 
+		                code.emit("UJUMP", M2->quad);
+		                code.backpatch(bexp->falselist,code.nextQuad());
+		                fullwhile->falselist = CodeList(code.nextQuad());
+		                fullwhile->falselist.merge(stmt->breaklist);
+		                code.emit("BREQZ", res , "-1"); 
+		                fullwhile->truelist = CodeList(code.nextQuad());
+		                code.emit("UJUMP -1");
+		                code.backpatch(stmt->nextlist,M1->quad);
+					};
+	cntrl		: IF bexp THEN M stmt ELSE N M stmt
+					{
+		                $$ = new StmtNode();
+		                StmtNode *cntrl = dynamic_cast<StmtNode*>($$);
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($2);
+		                MMarkNode *M1 = dynamic_cast<MMarkNode*>($4);
+		                BranchExpNode *stmt1 = dynamic_cast<BranchExpNode*>($5);
+		                NMarkNode *N = dynamic_cast<NMarkNode*>($7);
+		                MMarkNode *M2 = dynamic_cast<MMarkNode*>($8);
+		                BranchExpNode *stmt2 = dynamic_cast<BranchExpNode*>($9);
+		                code.backpatch(bexp->truelist, M1->quad);
+		                code.backpatch(bexp->falselist, M2->quad);
+		                cntrl->nextlist.merge(N->nextlist);
+		                cntrl->nextlist.merge(stmt1->nextlist);
+		                cntrl->nextlist.merge(stmt2->nextlist);
+		                cntrl->breaklist.merge(stmt1->breaklist);
+		                cntrl->breaklist.merge(stmt2->breaklist);
+					}
+					| IF bexp THEN M stmt 
+					{
+		                $$ = new StmtNode();
+		                StmtNode *cntrl = dynamic_cast<StmtNode*>($$);
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($2);
+		                MMarkNode *M = dynamic_cast<MMarkNode*>($4);
+		                BranchExpNode *stmt = dynamic_cast<BranchExpNode*>($5);
+		                code.backpatch(bexp->truelist, M->quad);
+		                cntrl->nextlist.merge(bexp->falselist);
+		                cntrl->nextlist.merge(stmt->nextlist);
+		                cntrl->breaklist.merge(stmt->breaklist);
+					}
+					| WHILE M bexp DO M stmt
+					{
+		                $$ = new StmtNode();
+		                StmtNode *cntrl = dynamic_cast<StmtNode*>($$);
+		                MMarkNode *M1 = dynamic_cast<MMarkNode*>($2);
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($3);
+		                MMarkNode *M2 = dynamic_cast<MMarkNode*>($5);
+		                StmtNode *stmt = dynamic_cast<StmtNode*>($6);
+		                code.backpatch(bexp->truelist,M2->quad);
+		                code.backpatch(stmt->nextlist,M1->quad);
+		                cntrl->nextlist.merge(bexp->falselist);
+		                cntrl->nextlist.merge(stmt->breaklist);
+		                //catch fall through
+		                code.emit("UJUMP", M1->quad); 
+					}
+					|fullwhile
+					{
+		                $$ = new StmtNode();
+		                StmtNode *cntrl = dynamic_cast<StmtNode*>($$);
+		                BranchExpNode *fullwhile = dynamic_cast<BranchExpNode*>($1); 
+		                cntrl->nextlist.merge(fullwhile->truelist);
+		                cntrl->nextlist.merge(fullwhile->falselist);
+					};
+	bexp		: bexp OR M bexp
+					{
+		                $$ = new BranchExpNode();
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($$);
+		                BranchExpNode *bexp1 = dynamic_cast<BranchExpNode*>($1);
+		                MMarkNode *M = dynamic_cast<MMarkNode*>($3);
+		                BranchExpNode *bexp2 = dynamic_cast<BranchExpNode*>($4);
+		                code.backpatch(bexp1->falselist, M->quad);
+		                bexp->truelist.merge(bexp1->truelist);
+		                bexp->truelist.merge(bexp2->truelist);
+		                bexp->falselist.merge(bexp2->falselist)
+					}
+					|bexp AND M bexp
+					{
+		                $$ = new BranchExpNode();
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($$);
+		                BranchExpNode *bexp1 = dynamic_cast<BranchExpNode*>($1);
+		                MMarkNode *M = dynamic_cast<MMarkNode*>($3);
+		                BranchExpNode *bexp2 = dynamic_cast<BranchExpNode*>($4);
+		                code.backpatch(bexp1->truelist,M->quad);
+		                bexp->truelist.merge(bexp2->truelist);
+		                bexp->falselist.merge(bexp1->falselist);
+		                bexp->falselist.merge(bexp2->falselist);
+					}
+					|NOT bexp
+					{
+		                $$ = new BranchExpNode();
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($$);        
+		                BranchExpNode *bexp1 = dynamic_cast<BranchExpNode*>($2);        
+		                bexp->falselist.merge(bexp1->truelist);
+		                bexp->truelist.merge(bexp1->falselist);
+					}
+					|exp RELOP exp
+					{
+		                $$ = new BranchExpNode();
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($$);        
+		                NodeExpression *exp1 = dynamic_cast<NodeExpression*>($1);
+		                TokenNode *relop = dynamic_cast<TokenNode*>($2)
+		                NodeExpression *exp2 = dynamic_cast<NodeExpression*>($3);
+		                if(exp1->exp != exp2->exp)
+		                        sem_error("types can't be RELOP together");
+		                if(exp1->exp == VOID_t)
+		                        sem_error("can't RELOP 'void' type");                
+		                string type = (exp1->exp == INT_t) ? "I" : "F"; 
+		                string IRes = varTable.head().tempReg(eINT);
+		                switch (RelopHit(relop->value)){
+		                case Eq:
+		                        if(exp1->exp == FLOAT_t){
+		                            string FRes = varTable.head().tempReg(eFLOAT);
+		                            code.emit("SEQUF", FRes, exp1->place, exp2->place);
+		                            code.emit("CFTOI", IRes, FRes);
+		                        } else {
+		                            code.emit("SEQUI", IRes, exp1->place, exp2->place);
+		                        }
+		                        bexp->truelist.push_back(code.nextQuad());
+		                        code.emit("BNEQZ", IRes, "-1");
+		                        break;
+		                case Neq:
+		                        if(exp1->exp == FLOAT_t){
+		                            string FRes = varTable.head().tempReg(eFLOAT);
+		                            code.emit("SNEQF", FRes, exp1->place, exp2->place);
+		                            code.emit("CFTOI", IRes, FRes);
+		                        } else {
+		                            code.emit("SNEQI", IRes, exp1->place, exp2->place);
+		                        }
+		                        bexp->truelist.push_back(code.nextQuad());
+		                        code.emit("BNEQZ", IRes, "-1");
+		                        break;
+		                case Lt:
+		                        if(exp1->exp == FLOAT_t){
+		                            string FRes = varTable.head().tempReg(eFLOAT);
+		                            code.emit("SLETF", FRes, exp1->place, exp2->place);
+		                            code.emit("CFTOI", IRes, FRes);
+		                        } else {
+		                            code.emit("SLETI", IRes, exp1->place, exp2->place);
+		                        }
+		                        bexp->truelist.push_back(code.nextQuad());
+		                        code.emit("BNEQZ", IRes, "-1");
+		                        break;
+		                case LtEq:
+		                        if(exp1->exp == FLOAT_t){
+		                            string FRes = varTable.head().tempReg(eFLOAT);
+		                            code.emit("SGRTF", FRes, exp1->place, exp2->place);
+		                            code.emit("CFTOI", IRes, FRes);
+		                        } else {
+		                            code.emit("SGRTI", IRes, exp1->place, exp2->place);
+		                        }
+		                        bexp->truelist.push_back(code.nextQuad());
+		                        code.emit("BNEQZ", IRes, "-1");
+		                        break;
+		                case Gt:
+		                        if(exp1->exp == FLOAT_t){
+		                            string FRes = varTable.head().tempReg(eFLOAT);
+		                            code.emit("SGRTF", FRes, exp1->place, exp2->place);
+		                            code.emit("CFTOI", IRes, FRes);
+		                        } else {
+		                            code.emit("SGRTI", IRes, exp1->place, exp2->place);
+		                        }
+		                        bexp->truelist.push_back(code.nextQuad());
+		                        code.emit("BNEQZ", IRes, "-1");
+		                        break;
+		                case GtEq:
+		                        if(exp1->exp == FLOAT_t){
+		                            string FRes = varTable.head().tempReg(eFLOAT);
+		                            code.emit("SLETF", FRes, exp1->place, exp2->place);
+		                            code.emit("CFTOI", IRes, FRes);
+		                        } else {
+		                            code.emit("SLETI", IRes, exp1->place, exp2->place);
+		                        }
+		                        bexp->truelist.push_back(code.nextQuad());
+		                        code.emit("BNEQZ", IRes, "-1");
+		                        break;
+		                default:
+		                        genErr("RELOP doen't match");
+		                        break;
+		                }       
+
+		                bexp->falselist.push_back(code.nextQuad());
+		                code.emit("UJUMP -1");
+					}
+					|'(' bexp ')'
+					{
+		                $$ = new BranchExpNode();
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($$);        
+		                BranchExpNode *bexp1 = dynamic_cast<BranchExpNode*>($2);
+		                bexp->truelist = bexp1->truelist;        
+		                bexp->falselist = bexp1->falselist;  
+					}
+					|fullwhile
+					{
+		                $$ = new BranchExpNode();
+		                BranchExpNode *fullwhile = dynamic_cast<BranchExpNode*>($1);
+		                BranchExpNode *bexp = dynamic_cast<BranchExpNode*>($$);        
+		                bexp->truelist = fullwhile->truelist;        
+		                bexp->falselist = fullwhile->falselist; 
+					};
+	exp			: exp ADDOP exp
+					{
+                		$$=new ExpNode();
+		                ExpNode *exp = dynamic_cast<ExpNode*>($$);
+		                ExpNode *exp1 = dynamic_cast<ExpNode*>($1);
+		                TokenNode *addop = dynamic_cast<TokenNode*>($2);
+		                ExpNode *exp2 = dynamic_cast<ExpNode*>($3);
+		                string types[3] = {"int", "float", "void"};
+		                if(exp1->exp != exp2->exp)
+		                        sem_error("different types assignment");
+		                if(exp1->exp == VOID_t)
+		                        sem_error("ADDOP can't be done with 'void'");
+		                string type = (exp1->exp == INT_t) ? "I" : "F";
+		                string res = varTable.head().tempReg(exp1->exp);
+		                switch (ArithHit(addop->value)){
+		                case Add:
+		                        code.emit(string("ADD2")+type, res, exp1->place, exp2->place);
+		                        break;
+		                case Sub:
+		                        code.emit(string("SUBT")+type, res, exp1->place, exp2->place);
+		                        break;
+		                default:
+		                        genErr("can't find match to ADDOP");
+		                        break;
+		                }
+		                exp->exp = exp1->exp;
+		                exp->place = res;
+					} 
+					|exp MULOP exp
+					{
+		                $$=new ExpNode("EXP",concatList(concatList($1,$2),$3));
+		                ExpNode *exp = dynamic_cast<ExpNode*>($$);
+		                ExpNode *exp1 = dynamic_cast<ExpNode*>($1);
+		                TokenNode *mulop = dynamic_cast<TokenNode*>($2);
+		                ExpNode *exp2 = dynamic_cast<ExpNode*>($3);
+
+		                if(exp1->exp != exp2->exp)
+		                        sem_error("different types assignment");
+		                if(exp1->exp == VOID_t)
+		                        sem_error("MULOP can't be done with 'void'");
+		                string type = (exp1->exp == INT_t) ? "I" : "F";
+		                string res = varTable.head().tempReg(exp1->exp);
+		                switch (ArithHit(addop->value)){
+		                case Mul:
+		                        code.emit(string("MULT")+type, res, exp1->place, exp2->place);
+		                        break;
+		                case Div:
+		                        code.emit(string("DIVD")+type, res, exp1->place, exp2->place);
+		                        break;
+		                default:
+		                        genErr("can't find MULOP match");
+		                        break;
+		                }
+
+		                exp->exp = exp1->exp;
+		                exp->place = res;
+					}
+					|'(' exp ')'
+					{
+			            $$=new ExpNode("EXP",concatList(concatList($1,$2),$3));
+			            ExpNode *exp = dynamic_cast<ExpNode*>($$);
+			            ExpNode *exp1 = dynamic_cast<ExpNode*>($2);
+
+			            exp->place = exp1->place;
+			            exp->exp = exp1->exp;
+					}
+					|'(' type ')' exp
+					{
+			            $$=new ExpNode();
+			            ExpNode *exp = dynamic_cast<ExpNode*>($$);
+			            TypeNode *type = dynamic_cast<TypeNode*>($2);
+			            ExpNode *exp1 = dynamic_cast<ExpNode*>($4);
+
+			            if(type->typeVal == exp1->exp){
+			                exp->place = exp1->place;
+			                exp->exp = exp1->exp;
+			            } else {
+			                if(type->typeVal == eINT){
+			                    exp->place = varTable.head().tempReg(eINT);
+			                    code.emit("CFTOI", exp->place, exp1->place);
+			                } else { //FLOAT_t
+			                    exp->place = varTable.head().tempReg(eFLOAT);
+			                    code.emit("CITOF", exp->place, exp1->place)
+			                }
+			            }
+					}
+					|ID
+					{
+		               $$=new ExpNode();
+		                ExpNode *exp = dynamic_cast<ExpNode*>($$);
+		                TokenNode *id = dynamic_cast<TokenNode*>($1); 
+		                varEntry idEntry;
+		                bool isFound = varTable.searchAllTables(idEntry, id->value);
+		                if(!isFound)
+		                    sem_error(string("failed to evaluat undeclared variable '") + id->value + "'");
+            		    string type = (idEntry.type == INT_t) ? "I" : "F";
+		                string temp = varTable.head().tempReg(idEntry.type);
+
+		                if(idEntry.type == FLOAT_t){
+		                    string floatDP = varTable.head().tempReg(eFLOAT);
+		                    code.emit("CITOF", floatDP, DP);
+		                    code.emit("LOADF", temp, floatDP, to_string(idEntry.offset));
+		                } else {
+		                    code.emit("LOADI", temp, DP, to_string(idEntry.offset));
+		                }
+		                
+		                cout << "new temp " << temp << " for id " << id->value << endl;
+
+		                exp->exp = idEntry.type;
+		                exp->place = temp;
+					}
+					|num
+					{
+		                $$=new ExpNode();
+		                ExpNode *exp = dynamic_cast<ExpNode*>($$);
+		                ExpNode *num = dynamic_cast<ExpNode*>($1);
+		                exp->place = num->place;
+		                exp->exp = num->exp;
+					}
+					|call
+					{
+		               $$=new ExpNode();
+		                ExpNode *exp = dynamic_cast<ExpNode*>($$);
+		                ExpNode *call = dynamic_cast<ExpNode*>($1);
+		                exp->place = call->place;
+		                exp->exp = call->exp;
+					};
+	num			: INTEGERNUM
+					{
+		                $$=new ExpNode();
+		                ExpNode *num = dynamic_cast<ExpNode*>($$);
+		                TokenNode *integer = dynamic_cast<TokenNode*>($1);
+		                num->place = varTable.head().tempReg(INT_t);
+		                num->exp = INT_t;
+		                code.emit("COPYI", num->place , integer->value); 
+					}
+					|REALNUM
+					{
+	                	$$=new ExpNode();
+		                ExpNode *num = dynamic_cast<ExpNode*>($$);
+		                TokenNode *real = dynamic_cast<TokenNode*>($1);
+		                num->place = varTable.head().tempReg(FLOAT_t);
+		                num->exp = FLOAT_t;
+		                code.emit("COPYF", num->place , real->value); 
+					};
+	call		: ID '(' call_args ')'
+					{
+				        $$=new ExpNode();
+				        ExpNode *call = dynamic_cast<ExpNode*>($$);
+				        TokenNode *id = dynamic_cast<TokenNode*>($1);
+				        CallArgsNode *call_args = dynamic_cast<CallArgsNode*>($3);
+
+				        funcEntry* funcEntry = funcTable.findEntryEntry(id->value);
+				        if(funcEntry == nullptr)
+				            sem_error("undeclared function");
+				        if(call_args->expList.size() != funcEntry->props.args.size())
+				            sem_error("wrong number of arguments is passed to func");
+
+				        varTable.storeIds();
+				        code.emit("STORI", RA, SP, "0");
+				        code.emit("STORI", DP, SP, "4");
+				        code.emit("STORI", FP, SP, "8");
+				        code.emit("ADD2I", FP, SP, "8");
+
+				        int i = FUNC_ARGS_OFFSET;
+				        auto argIt = funcEntry->props.args.begin();
+				        auto expArg = call_args->expList.begin();
+
+				        string floatFP = varTable.head().tempReg(FLOAT_t);
+				        code.emit("CITOF",floatFP, FP);
+
+				        for(;argIt != funcEntry->props.args.end();i++, argIt++, expArg++){
+				            if(expArg->exp != argIt->type)
+				                sem_error("wrong type of argument passed to the function");
+				            if(argIt->type == INT_t){
+				                code.emit(string("STORI"), expArg->place, FP, to_string(i * VAR_SIZE));
+				            } else if (argIt->type == eFLOAT){
+				                code.emit(string("STORF"), expArg->place, floatFP, to_string(i * VAR_SIZE));
+				            } else {
+				                unexpected_error("void arg is passed to function");
+				            }
+
+				        }
+
+				        code.emit("ADD2I", DP, FP, to_string(FUNC_ARGS_OFFSET*VAR_SIZE));
+				        code.emit("ADD2I", SP, FP, 
+				            to_string(((funcEntry->props.args.size()+FUNC_ARGS_OFFSET)* VAR_SIZE)));
+				        string L = funcEntry->getDefPlace(code.nextQuad());
+				        code.emit("JLINK", L);
+				        code.emit("COPYI", SP, FP);
+				        code.emit("LOADI", FP, FP, "0"); 
+				        code.emit("SUBTI", SP, SP, "8"); 
+				        code.emit("LOADI", DP, SP, "4"); 
+				        code.emit("LOADI", RA, SP, "0");
+				        varTable.loadIds(); 
+				        				        call->exp = funcEntry->props.type;
+				        if(funcEntry->props.type == INT_t){
+				                call->place = varTable.head().tempReg(INT_t);
+				                code.emit("COPYI", call->place, RI);
+				        } else if(funcEntry->props.type == eFLOAT){
+				                call->place = varTable.head().tempReg(FLOAT_t);
+				                code.emit("COPYF", call->place, RF);
+				        }
+					};
+	call_args	: call_arglist
+					{
+		                $$=new CallArgsNode();
+		                CallArgsNode *call_args = dynamic_cast<CallArgsNode*>($$);
+		                CallArgsNode *call_arglist = dynamic_cast<CallArgsNode*>($1);
+		                call_args->expList = call_arglist->expList;
+					}
+					|/*EPSILON*/
+					{
+						$$=new CallArgsNode();
+					};
+	call_arglist: call_arglist ',' exp
+					{
+		                $$=new CallArgsNode();
+		                CallArgsNode *call_arglist = dynamic_cast<CallArgsNode*>($$);
+		                CallArgsNode *call_arglist1 = dynamic_cast<CallArgsNode*>($1);
+		                ExpNode *exp = dynamic_cast<ExpNode*>($3);
+		                
+		                if(exp->exp == VOID_t)
+		                    sem_error("argument of type 'void' can't be passed to funct");
+		                call_arglist->expList = call_arglist1->expList;
+		                call_arglist->expList.push_back(*exp);
+					} 
+					|exp
+					{
+		                $$=new CallArgsNode();
+		                CallArgsNode *call_arglist = dynamic_cast<CallArgsNode*>($$);
+		                ExpNode *exp = dynamic_cast<ExpNode*>($1);
+
+		                if(exp->exp == VOID_t)
+		                    sem_error("argument of type 'void' can't be passed to funct");
+		                call_arglist->expList.push_back(*exp);
+					};	
+	M           : /*EPSILON*/
+					{
+				        MMarkNode *M = new MMarkNode();
+				        M->quad = code.nextQuad();
+				        $$=M;
+					};
+	N           : /*EPSILON*/
+					{
+			        NMarkNode *N = new NMarkNode();
+			        N->nextlist.push_back(code.nextQuad());
+			        code.emit("UJUMP -1");
+			        $$=N;
+					};
+%%
+
+void yyerror(const char* c){
+	printf("Syntax error: '%s' in line number %d\n", yytext, yylineno);
+	exit(2);
+}
+
+void new_err(const char* c){
+    printf("%s",c);
+    exit(10);
+}
+
+void sem_error(const char* c){
+	printf("Semantic error: '%s' in line number %d\n", c, yylineno);
+    exit(3);
+}
