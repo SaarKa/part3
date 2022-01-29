@@ -69,7 +69,7 @@ fdefs : /* epsilon */                   {$$=new SymNode();}
                 funcEntry* funcEntry = funcTable.find(func_api->funcProps.id);
                                 
                 if(funcEntry == nullptr){
-                    funcEntry = funcTable.addFunc(func_api->funcProps);
+                    funcEntry = funcTable.insert(func_api->funcProps);
                 } else { //found
                     if(!funcEntry->matchFunc(func_api->funcProps))
                         sem_err(string("the API of the definition of function '") + func_api->funcProps.id + "' doesn't match previous declaration");
@@ -97,7 +97,7 @@ fdefs : /* epsilon */                   {$$=new SymNode();}
 
                 funcEntry* funcEntry = funcTable.find(func_api->funcProps.id);
                 if(funcEntry == nullptr){
-                    funcTable.addFunc(func_api->funcProps);
+                    funcTable.insert(func_api->funcProps);
                 } else { //found
                     if(!funcEntry->matchFunc(func_api->funcProps)){
                         sem_err(string("duplicate declaration of function '") + func_api->funcProps.id + "' with different API");
