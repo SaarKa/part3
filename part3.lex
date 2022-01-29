@@ -91,7 +91,7 @@ break			{
 				return ID;
 				}
 {symbol}		{
-				yylval = new TokenNode(yytext,);
+				yylval = new TokenNode(yytext);
 				return yytext[0];
 				}
 {realnum}		{
