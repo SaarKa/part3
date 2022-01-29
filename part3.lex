@@ -4,7 +4,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "part3_helpers.hpp"
-#include "parser.tab.hpp"
+#include "part3.tab.hpp"
 
 void printError();
 int getTokenFromString(const char*);
