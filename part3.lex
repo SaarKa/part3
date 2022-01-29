@@ -91,7 +91,7 @@ break			{
 				return ID;
 				}
 {symbol}		{
-				yylval = new TokenNode(yytext, NULL, NULL);
+				yylval = new TokenNode(yytext,);
 				return yytext[0];
 				}
 {realnum}		{
@@ -100,7 +100,7 @@ break			{
 				}
 {str}			{
 				char* s = yytext;
-				s[yylen]='\0';
+				s[yyleng]='\0';
 				s = s+1;
 				yylval = new TokenNode("str", s);
 				return STR;
